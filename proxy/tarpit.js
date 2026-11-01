@@ -1,5 +1,16 @@
-const { TARPIT_MAX_SOCKETS, TARPIT_TIMEOUT_MS, TARPIT_TRICKLE_INTERVAL_MS } = require('../config/keys');
-const { recordAuditLog } = require('../services/auditService');
+const TARPIT_MAX_SOCKETS = 10;
+const TARPIT_TIMEOUT_MS = 30000;         // Keep attacker stalled for 30 seconds
+const TARPIT_TRICKLE_INTERVAL_MS = 2000; // Trickle 1 byte every 2 seconds
+
+let recordAuditLog = () => { };
+try {
+  const audit = require('./auditservice');
+  if (typeof audit.recordAuditLog === 'function') {
+    recordAuditLog = audit.recordAuditLog;
+  }
+} catch (e) {
+  recordAuditLog = (type, msg, ip, level) => console.log(`[AUDIT - ${level}] ${type}: ${msg}`);
+}
 
 const SQLI_REGEX = /(\b(UNION(\s+ALL)?|SELECT|INSERT|DELETE|UPDATE|DROP)\b|'|--|\/\*|\.\.\/)/i;
 let activeTarpitCount = 0;
@@ -16,7 +27,7 @@ function tarpitMiddleware(req, res, next) {
   const target = `${req.url} ${decodedUrl} ${bodyStr}`;
 
   if (SQLI_REGEX.test(target)) {
-    const clientIp = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+    const clientIp = req.headers['x-forwarded-for'] || req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
 
     recordAuditLog('TARPIT_ENGAGED', `SQL Injection detected on ${req.path}. Attacker IP ${clientIp} stalled in chunked stream.`, clientIp, 'ALARM');
 
@@ -37,7 +48,7 @@ function tarpitMiddleware(req, res, next) {
     let cleanedUp = false;
     const interval = setInterval(() => {
       if (!res.writableEnded) {
-        res.write(' '); // Trickle 1 byte every 4 seconds to stall automated tools
+        res.write(' '); // Trickle 1 byte every 2 seconds to stall automated tools
       }
     }, TARPIT_TRICKLE_INTERVAL_MS);
 

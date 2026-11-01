@@ -1,5 +1,13 @@
-const { VELOCITY_WINDOW_MS, VELOCITY_MAX_CALLS, VELOCITY_LOCKOUT_MS } = require('../config/keys');
-const { recordAuditLog } = require('../services/auditService');
+const VELOCITY_WINDOW_MS = 3000; const VELOCITY_MAX_CALLS = 3; const VELOCITY_LOCKOUT_MS = 6000;
+let recordAuditLog = () => { };
+try {
+  const audit = require('./auditservice');
+  if (typeof audit.recordAuditLog === 'function') {
+    recordAuditLog = audit.recordAuditLog;
+  }
+} catch (e) {
+  recordAuditLog = (type, msg, ip, level) => console.log(`[AUDIT - ${level}] ${type}: ${msg}`);
+}
 
 const requestLog = new Map(); // Stores { timestamps: number[], lockedUntil: number }
 const recentLockedIps = []; // Stores { ip: string, timestamp: number }
@@ -43,7 +51,7 @@ function velocityBreaker(req, res, next) {
     clientRecord.lockedUntil = now + VELOCITY_LOCKOUT_MS;
     clientRecord.timestamps = [];
     console.error(`[DEFENSE ALARM] Velocity Circuit Breaker tripped by IP: ${clientKey}`);
-    
+
     // Track for IP hopping / distributed proxy rotation pattern
     recentLockedIps.push({ ip: clientKey, timestamp: now });
     // Clean entries older than 20 seconds
